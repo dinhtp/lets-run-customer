@@ -1,29 +1,108 @@
 package cmd
 
 import (
-	"fmt"
+    "context"
+    "fmt"
+    "net"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
-	"github.com/spf13/cobra"
+    _ "github.com/go-sql-driver/mysql"
+    "github.com/sirupsen/logrus"
+    "github.com/spf13/cobra"
+    "github.com/spf13/viper"
+    "google.golang.org/grpc"
+    "gorm.io/driver/mysql"
+    "gorm.io/gorm"
 )
 
 var grpcCmd = &cobra.Command{
-	Use:   "grpc",
-	Short: "A brief description of your command",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("grpc called")
-	},
+    Use:   "grpc",
+    Short: "Run Customer service grpc command",
+    Run:   runGrpcCommand,
 }
 
 func init() {
-	rootCmd.AddCommand(grpcCmd)
+    serveCmd.AddCommand(grpcCmd)
 
-	// Here you will define your flags and configuration settings.
+    grpcCmd.Flags().StringP("backend", "", "grpc-address", "gRPC address")
+    grpcCmd.Flags().StringP("mysqlDsn", "", "mysql-dsn", "mysql connection string")
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// grpcCmd.PersistentFlags().String("foo", "", "A help for foo")
+    _ = viper.BindPFlag("backend", grpcCmd.Flags().Lookup("backend"))
+    _ = viper.BindPFlag("mysqlDsn", grpcCmd.Flags().Lookup("mysqlDsn"))
+}
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// grpcCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+func runGrpcCommand(cmd *cobra.Command, args []string) {
+    ctx := context.Background()
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+    // init DB Connection
+    mysqlChan := make(chan *gorm.DB, 1)
+    go initializeDbConnection("mysqlDsn", c, mysqlChan)
+    orm := <-mysqlChan
+
+    // services
+    grpcServer := grpc.NewServer()
+    grpcServer = initializeServices(orm, grpcServer)
+
+    // init GRPC backend
+    grpcAddr := viper.GetString("backend")
+    lis, err := net.Listen("tcp", grpcAddr)
+    if err != nil {
+        panic(err)
+    }
+
+    // Serve GRPC
+    go func() {
+        err = grpcServer.Serve(lis)
+        if err != nil {
+            panic(err)
+        }
+    }()
+
+    logrus.WithFields(logrus.Fields{
+        "service": "run-customer-service",
+        "type":    "grpc",
+        "address": grpcAddr,
+    }).Info("run customer service server started")
+
+    <-c
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel()
+
+    logrus.WithFields(logrus.Fields{
+        "service": "run-customer-service",
+        "type":    "grpc",
+        "address": grpcAddr,
+    }).Info("run customer service gracefully shutdowns")
+
+}
+
+func initializeDbConnection(mysqlDsnField string, c chan os.Signal, mysqlChan chan *gorm.DB) {
+    mysqlDsn := viper.GetString(mysqlDsnField)
+    orm, err := gorm.Open(mysql.Open(mysqlDsn), &gorm.Config{})
+    if nil != err {
+        fmt.Println(err)
+        c <- syscall.SIGTERM
+    }
+
+    sqlDB, err := orm.DB()
+    if nil != err {
+        panic(err)
+    }
+
+    sqlDB.SetConnMaxLifetime(300 * time.Minute)
+    sqlDB.SetMaxIdleConns(10)
+    sqlDB.SetMaxOpenConns(15)
+
+    fmt.Println(fmt.Sprintf("MySQL connection established"))
+
+    mysqlChan <- orm
+}
+
+func initializeServices(orm *gorm.DB, grpcServer *grpc.Server) *grpc.Server {
+    return grpcServer
 }
