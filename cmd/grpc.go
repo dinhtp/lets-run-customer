@@ -2,20 +2,19 @@ package cmd
 
 import (
     "context"
-    "fmt"
     "net"
     "os"
     "os/signal"
     "syscall"
-    "time"
 
     _ "github.com/go-sql-driver/mysql"
     "github.com/sirupsen/logrus"
     "github.com/spf13/cobra"
     "github.com/spf13/viper"
     "google.golang.org/grpc"
-    "gorm.io/driver/mysql"
-    "gorm.io/gorm"
+
+    "github.com/dinhtp/lets-run-customer/customer"
+    pb "github.com/dinhtp/lets-run-pbtype/gateway"
 )
 
 var grpcCmd = &cobra.Command{
@@ -28,10 +27,14 @@ func init() {
     serveCmd.AddCommand(grpcCmd)
 
     grpcCmd.Flags().StringP("backend", "", "grpc-address", "gRPC address")
-    grpcCmd.Flags().StringP("mysqlDsn", "", "mysql-dsn", "mysql connection string")
+    grpcCmd.Flags().StringP("platform", "", "platform-grpc-address", "platform grpc address")
+    grpcCmd.Flags().StringP("shopifyCustomer", "", "shopify-grpc-address", "shopify customer grpc address")
+    grpcCmd.Flags().StringP("wooCommerceCustomer", "", "woo-grpc-address", "woocommerce customer grpc address")
 
     _ = viper.BindPFlag("backend", grpcCmd.Flags().Lookup("backend"))
-    _ = viper.BindPFlag("mysqlDsn", grpcCmd.Flags().Lookup("mysqlDsn"))
+    _ = viper.BindPFlag("platform", grpcCmd.Flags().Lookup("platform"))
+    _ = viper.BindPFlag("shopifyCustomer", grpcCmd.Flags().Lookup("shopifyCustomer"))
+    _ = viper.BindPFlag("wooCommerceCustomer", grpcCmd.Flags().Lookup("wooCommerceCustomer"))
 }
 
 func runGrpcCommand(cmd *cobra.Command, args []string) {
@@ -39,14 +42,8 @@ func runGrpcCommand(cmd *cobra.Command, args []string) {
     c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-    // init DB Connection
-    mysqlChan := make(chan *gorm.DB, 1)
-    go initializeDbConnection("mysqlDsn", c, mysqlChan)
-    orm := <-mysqlChan
-
     // services
-    grpcServer := grpc.NewServer()
-    grpcServer = initializeServices(orm, grpcServer)
+    grpcServer := initializeServices(grpc.NewServer())
 
     // init GRPC backend
     grpcAddr := viper.GetString("backend")
@@ -81,28 +78,9 @@ func runGrpcCommand(cmd *cobra.Command, args []string) {
 
 }
 
-func initializeDbConnection(mysqlDsnField string, c chan os.Signal, mysqlChan chan *gorm.DB) {
-    mysqlDsn := viper.GetString(mysqlDsnField)
-    orm, err := gorm.Open(mysql.Open(mysqlDsn), &gorm.Config{})
-    if nil != err {
-        fmt.Println(err)
-        c <- syscall.SIGTERM
-    }
+func initializeServices(grpcServer *grpc.Server) *grpc.Server {
+    customerService := customer.NewService()
+    pb.RegisterCustomerServiceServer(grpcServer, customerService)
 
-    sqlDB, err := orm.DB()
-    if nil != err {
-        panic(err)
-    }
-
-    sqlDB.SetConnMaxLifetime(300 * time.Minute)
-    sqlDB.SetMaxIdleConns(10)
-    sqlDB.SetMaxOpenConns(15)
-
-    fmt.Println(fmt.Sprintf("MySQL connection established"))
-
-    mysqlChan <- orm
-}
-
-func initializeServices(orm *gorm.DB, grpcServer *grpc.Server) *grpc.Server {
     return grpcServer
 }

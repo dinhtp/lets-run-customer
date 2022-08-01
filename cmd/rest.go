@@ -2,6 +2,7 @@ package cmd
 
 import (
     "context"
+    "fmt"
     "net/http"
     "os"
     "os/signal"
@@ -13,6 +14,8 @@ import (
     "github.com/spf13/cobra"
     "github.com/spf13/viper"
     "google.golang.org/grpc"
+
+    pb "github.com/dinhtp/lets-run-pbtype/gateway"
 )
 
 var restCmd = &cobra.Command{
@@ -76,9 +79,14 @@ func runRestCommand(cmd *cobra.Command, args []string) {
     logrus.WithFields(logrus.Fields{
         "service": "run-customer-service",
         "type":    "rest",
-		"address": address,
+        "address": address,
     }).Info("run customer service gracefully shutdowns")
 }
 
 func initializeGatewayService(ctx context.Context, gw *runtime.ServeMux, endpoint string, opts []grpc.DialOption) {
+    customerGwErr := pb.RegisterCustomerServiceHandlerFromEndpoint(ctx, gw, endpoint, opts)
+    if nil != customerGwErr {
+        fmt.Println(customerGwErr)
+        os.Exit(1)
+    }
 }
