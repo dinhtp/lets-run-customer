@@ -79,7 +79,12 @@ func runGrpcCommand(cmd *cobra.Command, args []string) {
 }
 
 func initializeServices(grpcServer *grpc.Server) *grpc.Server {
-    customerService := customer.NewService()
+    platformSelector := customer.Platform{
+        Shopify:     viper.GetString("shopifyCustomer"),
+        WooCommerce: viper.GetString("wooCommerceCustomer"),
+    }
+
+    customerService := customer.NewService(platformSelector, viper.GetString("platform"))
     pb.RegisterCustomerServiceServer(grpcServer, customerService)
 
     return grpcServer
