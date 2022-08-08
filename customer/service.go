@@ -53,12 +53,43 @@ func (s Service) Get(ctx context.Context, r *pb.OneCustomerRequest) (*pb.Custome
     defer ecomConn.Close()
 
     // forward request to ecommerce service to handle logic
-    return ppb.NewCustomerServiceClient(ecomConn).Get(ctx, &ppb.OneCustomerRequest{Platform: platformData, Id: r.GetId()})
+    request := &ppb.OneCustomerRequest{Platform: platformData, Id: r.GetId()}
+    return ppb.NewCustomerServiceClient(ecomConn).Get(ctx, request)
 }
 
 func (s Service) Create(ctx context.Context, r *pb.Customer) (*pb.Customer, error) {
-    // TODO: implement logic
-    return &pb.Customer{}, nil
+    if err := validateCreate(r); err != nil {
+        return nil, err
+    }
+
+    // dial grpc connection to platform service
+    platformConn, err := grpc.Dial(s.platformGrpc, grpc.WithInsecure())
+    if nil != err {
+        return nil, err
+    }
+
+    defer platformConn.Close()
+
+    // get platform data by id
+    platformData, err := pb.NewPlatformServiceClient(platformConn).Get(ctx, &pb.OnePlatformRequest{Id: r.GetId()})
+    if nil != err {
+        return nil, err
+    }
+
+    // select ecommerce service address based on platform type
+    ecomAddress := s.platformSelector.GetEndpoint(platformData.GetType())
+
+    // dial grpc connection to ecommerce service
+    ecomConn, err := grpc.Dial(ecomAddress, grpc.WithInsecure())
+    if nil != err {
+        return nil, err
+    }
+
+    defer ecomConn.Close()
+
+    // forward request to ecommerce service to handle logic
+    request := &ppb.CreateUpdateCustomerRequest{Platform: platformData, Customer: r}
+    return ppb.NewCustomerServiceClient(ecomConn).Create(ctx, request)
 }
 
 func (s Service) Update(ctx context.Context, r *pb.Customer) (*pb.Customer, error) {

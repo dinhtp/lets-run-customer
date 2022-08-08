@@ -18,3 +18,23 @@ func validateOne(r *pb.OneCustomerRequest) error {
 
     return nil
 }
+
+func validateCreate(r *pb.Customer) error {
+    if r.GetPlatformId() == "" {
+        return status.Error(codes.InvalidArgument, "platform id is required")
+    }
+
+    if r.GetFirstName() == "" {
+        return status.Error(codes.InvalidArgument, "first name is required")
+    }
+
+    if r.GetLastName() == "" {
+        return status.Error(codes.InvalidArgument, "last name is required")
+    }
+
+    if r.GetEmail() == "" {
+        return status.Error(codes.InvalidArgument, "email is required")
+    }
+
+    return nil
+}
