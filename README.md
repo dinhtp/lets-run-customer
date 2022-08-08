@@ -1,4 +1,4 @@
-# Let's GO Customer API Gateway
+# Let's RUN Customer API Gateway
 
 ## I. What to do
 In this service, you will develop a backend server side functions that handle the **customer** API resources.
