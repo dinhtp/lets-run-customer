@@ -36,7 +36,8 @@ func (s Service) Get(ctx context.Context, r *pb.OneCustomerRequest) (*pb.Custome
     defer platformConn.Close()
 
     // get platform data by id
-    platformData, err := pb.NewPlatformServiceClient(platformConn).Get(ctx, &pb.OnePlatformRequest{Id: r.GetId()})
+    platformRequest := &pb.OnePlatformRequest{Id: r.GetPlatformId()}
+    platformData, err := pb.NewPlatformServiceClient(platformConn).Get(ctx, platformRequest)
     if nil != err {
         return nil, err
     }
@@ -53,8 +54,8 @@ func (s Service) Get(ctx context.Context, r *pb.OneCustomerRequest) (*pb.Custome
     defer ecomConn.Close()
 
     // forward request to ecommerce service to handle logic
-    request := &ppb.OneCustomerRequest{Platform: platformData, Id: r.GetId()}
-    return ppb.NewCustomerServiceClient(ecomConn).Get(ctx, request)
+    ecomRequest := &ppb.OneCustomerRequest{Platform: platformData, Id: r.GetId()}
+    return ppb.NewCustomerServiceClient(ecomConn).Get(ctx, ecomRequest)
 }
 
 func (s Service) Create(ctx context.Context, r *pb.Customer) (*pb.Customer, error) {
